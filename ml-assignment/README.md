@@ -44,6 +44,10 @@ ml-assignment/
 │   ├── utils.py
 │   └── ngram_model.py
 │
+├── task2_attention/
+│   ├── attention.py
+│   └── demo_attention.py
+│
 ├── tests/
 │   ├── test_ngram.py
 │   └── test_full_trigram.py

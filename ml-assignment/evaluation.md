@@ -1,141 +1,175 @@
 # Evaluation
 
-Please provide a 1-page summary of your design choices for the Trigram Language Model.
+## Trigram Language Model — Design Choices
 
-This should include:
+---
 
-- How you chose to store the n-gram counts.
-- How you handled text cleaning, padding, and unknown words.
-- How you implemented the `generate` function and the probabilistic sampling.
-- Any other design decisions you made and why you made them.
+## 1. N-Gram Storage Structure
 
-**Trigram Language Model — Design Choices**
--------------------------------------------
+I chose to store trigram counts using a **3-level nested `defaultdict`**:
 
-### **1\. N-Gram Storage Structure**
+``` python
+self.trigram_counts[w1][w2][w3] += 1
 
-I chose to store trigram counts using a 3-level nested defaultdict:
+```
+This structure:
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   self.trigram_counts[w1][w2][w3] += 1   `
+- Allows constant-time updates while training  
+- Avoids manual key-existence checks  
+- Mirrors the mathematical definition of trigrams  
+- Keeps the implementation simple and efficient  
 
-This structure allows constant-time updates while training and provides clean, intuitive access when generating text. It avoids key-existence checks and keeps the implementation compact. The hierarchical dictionary representation matches the mathematical structure of trigram models, where each pair (w1, w2) defines a conditional distribution over w3.
+Using a nested dictionary `(w1 → w2 → w3 → count)` makes accessing conditional distributions extremely clean when generating text.
 
-### **2\. Text Cleaning & Normalization**
+---
 
-Text is cleaned in a preprocessing pipeline implemented in utils.py.The cleaning logic was guided by both assignment objectives and the extended test suite.
+## 2. Text Cleaning & Normalization
 
-Key decisions:
+All preprocessing is implemented in `utils.py`.  
+The cleaning pipeline is built to satisfy assignment requirements **and** all 26 tests.
 
-#### **a. Lowercasing**
+### a. Lowercasing
+All tokens are converted to lowercase to unify vocabulary and minimize token variations.
 
-All tokens are converted to lowercase to reduce vocabulary size and improve consistency.
+### b. Repeated-Letter Handling
+A two-step normalization rule:
 
-#### **b. Repeated-Letter Handling**
+- Collapse **3 or more repeated letters** into **one**  
+  - `"Heeellp"` → `"help"`
+- Preserve valid double letters  
+  - `"Hello"` → `"hello"` (NOT `"helo"`)
 
-I implemented a two-step rule:
+This ensures realistic English normalization while satisfying test expectations.
 
-*   Collapse **3+ repeated letters** down to **1** (e.g., "Heeellp" → "help").
-    
-*   Preserve double letters that are naturally part of English words ("Hello" → "hello", NOT "helo").
-    
+### c. Punctuation Handling
 
-This balances test-driven behavior and realistic text normalization.
+Using `split_punctuation()`, tokens are separated into words and punctuation.
 
-#### **c. Punctuation Handling**
+Rules:
 
-Using split\_punctuation(), words and punctuation are separated. Then:
+- Remove end-of-word punctuation sequences such as `"!!!"` or `","`
+- Preserve **single-character** `"?"` and `"!"` when they appear alone  
+- Remove multi-symbol noise like `"???"`, `"..."`, etc.
 
-*   End-of-word punctuation such as "!!!" and "," is removed.
-    
-*   Single-character "?" and "!" are preserved if they stand alone (matches test expectations).
-    
+This produces clean, meaningful tokens without breaking sentence meaning.
 
-This yields clean tokens while preserving meaningful punctuation.
+### d. Symbol & Noise Removal
 
-#### **d. Symbol & Noise Removal**
+All non-alphanumeric symbols are stripped to ensure robustness against:
 
-Non-alphanumeric characters are removed after segmentation to ensure robustness against noisy inputs like "@#$", "!!!", "???", and unicode variants.
+- Emoji  
+- Random symbols (`@#$` etc.)  
+- Excessive punctuation  
+- Unicode oddities  
 
-### **3\. Tokenization**
+This keeps the vocabulary clean and consistent.
+
+---
+
+## 3. Tokenization
 
 The tokenizer performs:
 
-1.  Whitespace trimming
-    
-2.  Regex-based word + punctuation extraction
-    
-3.  Cleaning each token
-    
-4.  Conditional punctuation removal
-    
-5.  Final clean token list returned
-    
+1. Whitespace trimming  
+2. Regex-based word + punctuation extraction  
+3. Token-level cleaning  
+4. Conditional punctuation removal  
+5. Assembly of the final cleaned token list  
 
-The tokenizer is built to pass all 26 test cases, including unicode, numbers, repeated letters, noise, and multi-punctuation sequences.
+It successfully handles:
 
-### **4\. Padding Strategy**
+- Unicode  
+- Numbers  
+- Repeated characters  
+- Noisy sequences  
+- Multi-punctuation patterns  
 
-To allow trigram learning at sentence boundaries, I prepend two tokens and append one token:
+The tokenizer is fully validated by all 26 tests.
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML  `w1 w2 ... wn` 
+---
 
-This ensures:
+## 4. Padding Strategy
 
-*   deterministic generation start
-    
-*   correct formation of initial trigrams
-    
-*   clean sentence termination
-    
+To teach the model sentence boundaries, I add:
 
-### **5\. Unknown Words**
+```php
+<START> <START> w1 w2 ... wn <END>
+```
 
-During generation, tokens are mapped to known words via map\_unknowns():
+Padding ensures:
 
-*   Known words → unchanged
-    
-*   Unknown words →
-    
-*   Special tokens are preserved
-    
+- Deterministic sentence start  
+- Correct formation of initial trigrams  
+- Predictable sentence endings  
 
-This ensures the model remains robust even when encountering unseen vocabulary.
+This allows the generator to start and stop cleanly.
 
-### **6\. Generation & Sampling**
+---
 
-The generate() function:
+## 5. Unknown Words
 
-1.  Starts from (, )
-    
-2.  Looks up the trigram distribution for (w1, w2)
-    
-3.  Uses **probabilistic sampling**, not greedy selection:
-    
+Unknown words are handled by `map_unknowns()`:
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   choose_from_distribution(counts_dict)   `
+- Known words → unchanged  
+- Unknown words → `<UNK>`  
+- Special tokens (`<START>`, `<END>`, `<UNK>`) remain stable  
 
-The sampling helper converts raw counts into normalized cumulative probabilities and selects a word proportionally. This avoids deterministic outputs and produces varied sentences.
+This prevents model crashes on unseen tokens and maintains consistent generation behavior.
 
-Generation stops when:
+---
 
-*   is sampled
-    
-*   No continuations exist
-    
-*   Max length is reached
-    
+## 6. Generation & Sampling
 
-This prevents infinite loops and matches assignment constraints.
+The `generate()` function:
 
-### **7\. Additional Design Decisions**
+- Starts from:
 
-*   All preprocessing and helpers are placed in utils.py to keep ngram\_model.py clean and modular.
-    
-*   The model is resilient to noisy inputs (symbols, unicode, long repetition, malformed punctuation).
-    
-*   The implementation adheres to the project structure expected by pytest and the assignment.
-    
+```
+(<START>, <START>)
+```
 
-### **8\. Summary**
+- Retrieves the trigram distribution for `(w1, w2)`
+- Samples the next word using **probabilistic sampling**, not greedy selection:
 
-The final design balances simplicity, correctness, modularity, and robustness.passes all **26 functional tests**, including edge-case and stress tests, while remaining faithful to the classic trigram language-modeling approach.
+``` python
+choose_from_distribution(counts_dict)
+```
+
+The sampling helper:
+
+- Converts raw counts → probability distribution  
+- Performs cumulative weighted sampling  
+- Produces natural, non-deterministic output  
+
+Generation stops if:
+
+- `<END>` is sampled  
+- No valid continuation exists  
+- The maximum sentence length is exceeded  
+
+This prevents infinite loops and creates natural-length sequences.
+
+---
+
+## 7. Additional Design Decisions
+
+- All helpers are placed in `utils.py` to keep `ngram_model.py` clean and modular  
+- The system is robust to:
+  - Unicode text  
+  - Noise symbols  
+  - Long repeated patterns  
+  - Edge-case punctuation  
+- The project structure is fully compatible with pytest and the assignment  
+
+---
+
+## 8. Summary
+
+The final design emphasizes:
+
+- **Simplicity**
+- **Correctness**
+- **Modularity**
+- **Robustness**
+
+It passes **all 26 tests**, including stress tests and noise-handling scenarios, while remaining faithful to the classic trigram language-modeling paradigm.
